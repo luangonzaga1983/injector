@@ -39,7 +39,7 @@ def execute_silent_injection():
 
     # --- CONSTANTES ---
     DISCORD_CHANNEL_ID = "1393441968566046750"
-    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GBcucQ.WxVY_lEbQXSanQz05FbpI6IWBeY64rtLYOp4ig"
+    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GBXkiq.oiuYygfwm6TXNUlZ2be3N_C6oFt88xh1AF2CWk"
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
 
